@@ -1316,6 +1316,14 @@ class CameraStreamerService : StreamerService<ISingleStreamer>(
                     } catch (e: Exception) {
                         setConnectingRemote(false)
                         Log.w(TAG, "Failed to start local recording pipeline: ${e.message}")
+                        withContext(NonCancellable + Dispatchers.IO) {
+                            try { currentStreamer.close() } catch (_: Throwable) {}
+                            openedLocalUri?.let { uri ->
+                                if (uri.scheme == "content") {
+                                    try { contentResolver.delete(uri, null, null) } catch (_: Throwable) {}
+                                }
+                            }
+                        }
                         serviceScope.launch { _criticalErrors.emit("Start failed: ${e.message}") }
                         return
                     }
@@ -1387,6 +1395,14 @@ class CameraStreamerService : StreamerService<ISingleStreamer>(
                     val audioEncoderExists = (currentStreamer as? io.github.thibaultbee.streampack.core.streamers.single.IAudioSingleStreamer)?.audioEncoder != null
                     val errorMsg = "Encoders not ready after open (video=$videoEncoderExists, audio=$audioEncoderExists)"
                     Log.e(TAG, "startStreamFromConfiguredEndpoint: $errorMsg")
+                    withContext(NonCancellable + Dispatchers.IO) {
+                        try {
+                            if (isRemoteDualEndpoint) dualEndpoint.closeSecond() else currentStreamer.close()
+                        } catch (_: Throwable) {}
+                        if (!isRemoteDualEndpoint && descriptor.uri.scheme == "content") {
+                            try { contentResolver.delete(descriptor.uri, null, null) } catch (_: Throwable) {}
+                        }
+                    }
                     customNotificationUtils.notify(onErrorNotification(Throwable(errorMsg)) ?: onCreateNotification())
                     serviceScope.launch { _criticalErrors.emit(errorMsg) }
                     return
@@ -1428,6 +1444,14 @@ class CameraStreamerService : StreamerService<ISingleStreamer>(
                 Log.i(TAG, "startStream() called successfully, waiting for isStreamingFlow to confirm")
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to start stream after open: ${e.message}")
+                withContext(NonCancellable + Dispatchers.IO) {
+                    try {
+                        if (isRemoteDualEndpoint) dualEndpoint.closeSecond() else currentStreamer.close()
+                    } catch (_: Throwable) {}
+                    if (!isRemoteDualEndpoint && descriptor.uri.scheme == "content") {
+                        try { contentResolver.delete(descriptor.uri, null, null) } catch (_: Throwable) {}
+                    }
+                }
                 // Don't set ERROR status - keep CONNECTING so ViewModel can trigger reconnection
                 // The ViewModel's critical errors observer will detect this and trigger handleDisconnection
                 // Don't call notify(onCreateNotification()) here - let the status observer handle it
